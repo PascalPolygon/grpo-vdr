@@ -6,8 +6,8 @@
 
 This repository contains the official implementation and supplementary materials for the paper:
 
-> **Entropic Token Surge: Enhancing Group Relative Policy Optimization with Variational Disagreement**  
-> *pdao2015, March 2025*
+> **Entropic Resistance**  
+> *Mawaba Pascal Dao, March 2025*
 
 ## Overview
 
@@ -55,7 +55,7 @@ Adjust experiment configurations by editing `configs/grpo_config.yaml`.
 If you find our paper and code useful, please cite:
 
 ```bibtex
-@article{pdao2015entropic,
+@article{mdaoentropic,
   title={Entropic Resistance},
   author={pdao2015},
   year={2025},
