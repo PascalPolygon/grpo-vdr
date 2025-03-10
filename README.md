@@ -1,6 +1,8 @@
 # Entropic Resistance
 
-![Entropic Resistance](enropic_resistance.png)
+
+<img src="enropic_token_surge.png" alt="Entropic Resistance" width="400px"/>
+
 
 **Enhancing Group Relative Policy Optimization (GRPO) with Variational Disagreement**
 
