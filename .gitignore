@@ -1,0 +1,11 @@
+Qwen2-0.5B-GRPO/
+wandb/
+config/
+slurm/
+__pycache__
+*.ckpt
+*.pth
+*.out
+*.log
+
+
