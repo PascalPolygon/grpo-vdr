@@ -13,7 +13,7 @@ This repository contains the official implementation and supplementary materials
 
 ## Overview
 
-The Entropic Token Surge integrates Bayesian Active Learning by Disagreement (BALD) into the Group Relative Policy Optimization (GRPO) framework to enhance exploration efficiency and robustness in reinforcement fine-tuning of language models. By quantifying epistemic uncertainty through entropy-based measures, this approach actively encourages exploration of less certain, information-rich token choices.
+The Entropic Resistance integrates Bayesian Active Learning by Disagreement (BALD) into the Group Relative Policy Optimization (GRPO) framework to enhance exploration efficiency and robustness in reinforcement fine-tuning of language models. By quantifying epistemic uncertainty through entropy-based measures, this approach actively encourages exploration of less certain, information-rich token choices.
 
 ## Contents
 
