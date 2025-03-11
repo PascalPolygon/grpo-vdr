@@ -54,6 +54,11 @@ def main():
         use_vllm=False,
         report_to=["wandb"],
         per_device_train_batch_size=8,
+        epi_reward_lambda=0.01,
+        aleatoric_reward_lambda=0.01,
+        epi_reward_mode="all",
+        intrinsic_reward_type="all",
+        
         # Additional relevant flags...
     )
     # We'll inject our new flags into training_args
@@ -77,7 +82,7 @@ def main():
         model=model,                
         reward_funcs=reward_len,    
         args=training_args,
-        train_dataset=dataset
+        train_dataset=dataset,
     )
 
     logger.info(f"Starting training with epistemic_mode={args.epistemic_mode}, bald_weight={args.bald_weight}")
