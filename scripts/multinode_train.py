@@ -31,8 +31,18 @@ def parse_args():
     return args
 
 def reward_len(completions, **kwargs):
-    """Reward function that gives higher scores to longer completions."""
-    return [float(len(c)) for c in completions]
+    return [-abs(20 - len(completion)) for completion in completions]
+
+def format_reward_func(completions, **kwargs):
+    """Reward function that checks if the completion has a specific format."""
+    pattern = r"^<think>.*?</think><answer>.*?</answer>$"
+    completion_contents = [completion[0]["content"] for completion in completions]
+    matches = [re.match(pattern, content) for content in completion_contents]
+    return [1.0 if match else 0.0 for match in matches]
+
+# def reward_len(completions, **kwargs):
+#     """Reward function that gives higher scores to longer completions."""
+#     return [float(len(c)) for c in completions]
 
 def main():
     ddp_setup()
@@ -54,10 +64,12 @@ def main():
         use_vllm=False,
         report_to=["wandb"],
         per_device_train_batch_size=8,
-        epi_reward_lambda=0.01,
-        aleatoric_reward_lambda=0.01,
+        # epi_reward_lambda=0.01,
+        epi_reward_lambda=1e7,
+        # aleatoric_reward_lambda=0.01,
+        aleatoric_reward_lambda=1e7,
         epi_reward_mode="all",
-        intrinsic_reward_type="all",
+        intrinsic_reward_type="epistemic",
         
         # Additional relevant flags...
     )
@@ -80,7 +92,8 @@ def main():
     # Create the trainer
     trainer = GRPOTrainer(
         model=model,                
-        reward_funcs=reward_len,    
+        # reward_funcs=reward_len,    
+        reward_funcs=format_reward_func,
         args=training_args,
         train_dataset=dataset,
     )
