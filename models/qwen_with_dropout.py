@@ -236,12 +236,13 @@ class Qwen2ForCausalLMWithDropout(Qwen2ForCausalLM):
         use_cache: Optional[bool] = None,
         output_attentions: Optional[bool] = None,
         output_hidden_states: Optional[bool] = None,
-        return_dict: Optional[bool] = None,
+        return_dict: Optional[bool] = True,  # Force return_dict to always be True
         cache_position: Optional[torch.LongTensor] = None,
         num_logits_to_keep: int = 0,
+        logits_to_keep: int = None,  # Added for compatibility with GRPO trainer
         **kwargs,
     ):
-        # Get transformer outputs from our modified model
+        # Get transformer outputs from our modified model - force return_dict=True
         outputs = self.model(
             input_ids=input_ids,
             attention_mask=attention_mask,
@@ -251,7 +252,7 @@ class Qwen2ForCausalLMWithDropout(Qwen2ForCausalLM):
             use_cache=use_cache,
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
-            return_dict=return_dict,
+            return_dict=True,  # Force this to be True to get an object
             cache_position=cache_position,
             **kwargs,
         )
@@ -262,24 +263,27 @@ class Qwen2ForCausalLMWithDropout(Qwen2ForCausalLM):
         if self.training:
             hidden_states = self.output_dropout(hidden_states)
             
-        # Apply modified logic for logits calculation, based on num_logits_to_keep
-        if num_logits_to_keep == 0:
+        # Handle both num_logits_to_keep and logits_to_keep (for GRPO)
+        actual_logits_to_keep = logits_to_keep if logits_to_keep is not None else num_logits_to_keep
+            
+        # Apply modified logic for logits calculation, based on logits_to_keep
+        if actual_logits_to_keep == 0:
             logits = self.lm_head(hidden_states)
         else:
-            # Only compute logits for the last num_logits_to_keep tokens
+            # Only compute logits for the last logits_to_keep tokens
             # This is particularly useful during generation to save memory
             logits = torch.cat(
                 [
-                    # Pad with zeros for all but the last num_logits_to_keep tokens
+                    # Pad with zeros for all but the last logits_to_keep tokens
                     torch.zeros(
                         hidden_states.shape[0],
-                        hidden_states.shape[1] - num_logits_to_keep,
+                        hidden_states.shape[1] - actual_logits_to_keep,
                         self.vocab_size,
                         dtype=hidden_states.dtype,
                         device=hidden_states.device,
                     ),
-                    # Compute logits only for the last num_logits_to_keep tokens
-                    self.lm_head(hidden_states[:, -num_logits_to_keep:, :]),
+                    # Compute logits only for the last logits_to_keep tokens
+                    self.lm_head(hidden_states[:, -actual_logits_to_keep:, :]),
                 ],
                 dim=1,
             )
@@ -305,14 +309,17 @@ class Qwen2ForCausalLMWithDropout(Qwen2ForCausalLM):
             loss_fct = nn.CrossEntropyLoss()
             loss = loss_fct(shift_logits.view(-1, self.config.vocab_size), shift_labels.view(-1))
             
-        # Return expected output format
-        return (loss, logits, outputs.past_key_values) if not return_dict else {
-            "loss": loss,
-            "logits": logits,
-            "past_key_values": outputs.past_key_values,
-            "hidden_states": outputs.hidden_states if output_hidden_states else None,
-            "attentions": outputs.attentions if output_attentions else None,
-        }
+        # Always return a CausalLMOutputWithPast object for compatibility with the GRPO trainer
+        from transformers.modeling_outputs import CausalLMOutputWithPast
+        
+        # Create a proper CausalLMOutputWithPast object that will have the right attributes
+        return CausalLMOutputWithPast(
+            loss=loss,
+            logits=logits,
+            past_key_values=outputs[1] if len(outputs) > 1 else None,
+            hidden_states=outputs[2] if output_hidden_states and len(outputs) > 2 else None,
+            attentions=outputs[3] if output_attentions and len(outputs) > 3 else None,
+        )
 
 
 def create_qwen_with_dropout(pretrained_model_name_or_path, dropout_rate=0.1, **kwargs):

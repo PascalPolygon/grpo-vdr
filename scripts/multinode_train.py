@@ -52,10 +52,16 @@ def format_reward_func(completions, **kwargs):
 #     return [float(len(c)) for c in completions]
 
 def main():
+    # Initialize process group first
     ddp_setup()
     local_rank = int(os.environ["LOCAL_RANK"])
-    logger.info(f"local_rank: {local_rank}, global_rank: {os.environ['RANK']}")
+    global_rank = int(os.environ["RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+    logger.info(f"local_rank: {local_rank}, global_rank: {global_rank}, world_size: {world_size}")
 
+    # Ensure all processes are initialized before proceeding
+    torch.distributed.barrier()
+    
     args = parse_args()
 
     model_name = "Qwen/Qwen2.5-0.5B-Instruct"
@@ -71,7 +77,7 @@ def main():
         "hidden_dropout_prob": 0.1,   # Hidden layer dropout (BERT-style models)
         "attention_probs_dropout_prob": 0.1  # Attention probs dropout (BERT-style models)
     }
-    
+    dropout_rate = args.dropout_rate
     # We create a small GRPOConfig with the final usage
     training_args = GRPOConfig(
         output_dir="Qwen2-0.5B-GRPO",
@@ -89,7 +95,7 @@ def main():
         
         # We don't need model_init_kwargs anymore as we're using our custom model
         # But let's keep a reference to dropout settings for documentation
-        model_init_kwargs={"dropout_rate": dropout_rate},
+        # model_init_kwargs={"dropout_rate": dropout_rate},
         
         # Additional relevant flags...
     )
@@ -103,22 +109,52 @@ def main():
 
     # Build our custom Qwen model with dropout layers properly injected
     logger.info(f"Creating custom Qwen model with dropout layers injected")
-    dropout_rate = args.dropout_rate
     
-    # Use our helper function to create a model with dropout layers
-    model = create_qwen_with_dropout(
-        model_name,
-        dropout_rate=dropout_rate,
-        torch_dtype=torch.bfloat16
-    )
+    try:
+        # Use our helper function to create a model with dropout layers
+        logger.info(f"Rank {global_rank}: Starting model creation")
+        
+        # Set appropriate seeds to ensure model initialization is consistent
+        torch.manual_seed(42)
+        torch.cuda.manual_seed_all(42)
+        
+        model = create_qwen_with_dropout(
+            model_name,
+            dropout_rate=dropout_rate,
+            torch_dtype=torch.bfloat16
+        )
+        
+        # Log the model architecture
+        logger.info(f"Rank {global_rank}: Model creation successful")
+        logger.info(f"Rank {global_rank}: Using model with dropout_rate={dropout_rate}")
+        
+        # Ensure model is loaded to the correct GPU
+        device = torch.device(f"cuda:{local_rank}")
+        model = model.to(device)
+        
+        # Synchronize before DDP wrapper to ensure all processes have loaded the model
+        torch.distributed.barrier()
+        logger.info(f"Rank {global_rank}: Model moved to GPU {local_rank}")
+        
+        # Verify model has parameters before DDP wrapping
+        param_count = sum(p.numel() for p in model.parameters())
+        logger.info(f"Rank {global_rank}: Model has {param_count} parameters before DDP wrapping")
+        
+        # Create DDP model
+        model = torch.nn.parallel.DistributedDataParallel(
+            model, 
+            device_ids=[local_rank],
+            find_unused_parameters=False
+        )
+        logger.info(f"Rank {global_rank}: Successfully wrapped model in DDP")
+    except Exception as e:
+        logger.error(f"Rank {global_rank}: Error during model creation/initialization: {str(e)}")
+        import traceback
+        logger.error(traceback.format_exc())
+        # Clean up and exit
+        destroy_process_group()
+        raise
     
-    # Log the model architecture
-    logger.info(f"Model config: {model.config}")
-    logger.info(f"Using model with dropout_rate={dropout_rate}")
-    
-    # Continue with DDP setup
-    model = model.to(f"cuda:{local_rank}")
-    model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank])
     model.config = model.module.config
     model.warnings_issued = getattr(model.module, "warnings_issued", {})
     model.add_model_tags = model.module.add_model_tags

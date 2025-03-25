@@ -12,7 +12,7 @@
 #SBATCH --exclusive
 
 export NUM_MACHINES=2
-export NUM_PROCESSES=6
+export NUM_PROCESSES=8  # 4 GPUs per node * 2 nodes
 
 # Load modules
 # module load mpich
@@ -115,7 +115,8 @@ OMP_NUM_THREADS=12 srun /home1/pdao2015/.conda/envs/vllm_env/bin/torchrun \
     --rdzv_id $RANDOM \
     --rdzv_endpoint $MASTER_ADDR:$MASTER_PORT \
     --rdzv_backend c10d \
-    scripts/multinode_train.py
+    scripts/multinode_train.py \
+
 
 
 # OMP_NUM_THREADS=12 srun python -m torch.distributed.run  \
