@@ -6,6 +6,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 import re
 import logging
 import os
+import sys
 from torch.distributed import init_process_group, destroy_process_group
 import torch.nn as nn # Added for force_dropout
 import inspect # Added for force_dropout
@@ -13,6 +14,10 @@ import torch.nn.functional as F # Added for force_dropout
 
 # Import our custom trainer
 from custom_grpo_trainer import TLDRGRPOTrainer
+
+# Add the parent directory to path to import our custom model
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from models.qwen_with_dropout import create_qwen_with_dropout
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -160,8 +165,13 @@ def force_dropout(model, p: float = 0.1):
 def main():
     # ddp_setup()
     local_rank = int(os.environ["LOCAL_RANK"])
-    logger.info(f"local_rank: {local_rank}, global_rank: {os.environ['RANK']}")
+    global_rank = int(os.environ["RANK"])
+    world_size = int(os.environ["WORLD_SIZE"])
+    logger.info(f"local_rank: {local_rank}, global_rank: {global_rank}, world_size: {world_size}")
 
+    # Ensure all processes are initialized before proceeding
+    torch.distributed.barrier()
+    
     args = parse_args()
 
     model_name = "Qwen/Qwen2.5-0.5B-Instruct"
@@ -263,7 +273,7 @@ def main():
         train_dataset=dataset,
     )
 
-    logger.info(f"Starting training with epistemic_mode={args.epistemic_mode}, bald_weight={args.bald_weight}")
+    logger.info(f"Starting training with epistemic_mode={args.epistemic_mode}, bald_weight={args.bald_weight}, dropout_rate={args.dropout_rate}")
     trainer.train()
     destroy_process_group()
 
