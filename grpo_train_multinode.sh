@@ -3,35 +3,40 @@
 #SBATCH --output=slurm/output_%j.log
 #SBATCH --error=slurm/error_%j.log
 #SBATCH --nodes=2
-#SBATCH --gres=gpu:4
+#SBATCH --gres=gpu:a100:4
 #SBATCH --ntasks-per-node=1
-#SBATCH --ntasks=2
-#SBATCH --mem=320G
-#SBATCH --time=7-00:00:00    
-#SBATCH --partition=gpu1
-#SBATCH --exclusive
-
-export NUM_MACHINES=2
-export NUM_PROCESSES=6
+#SBATCH --ntasks=2 
+#SBATCH --mem-per-gpu=30G
+#SBATCH --cpus-per-task=12
+#SBATCH --partition=gpu
+#SBATCH --time=14-00:00:00
+#SBATCH --array=1-4
 
 # Load modules
 # module load mpich
-
-module load cuda/12.3.0-gcc-9.4.0-fvbwiov
-module load nccl/2.9.9-1-gcc-9.4.0-gz35mmp 
+module load conda
+# module load cuda/12.2.2  # Comment out to avoid CUDA driver conflicts
+module load nccl/20.11
 # module load cuda/11.8.0-gcc-9.4.0-dmftitd
 
 # Initialize conda properly
 # source ~/.bashrc
-source /usr/local/spack/opt/spack/linux-ubuntu20.04-cascadelake/gcc-9.4.0/anaconda3-2022.10-qnnpc2ciyw76yyntaq6mxyim6eh4axd6/etc/profile.d/conda.sh
+# source /usr/local/spack/opt/spack/linux-ubuntu20.04-cascadelake/gcc-9.4.0/anaconda3-2022.10-qnnpc2ciyw76yyntaq6mxyim6eh4axd6/etc/profile.d/conda.sh
 # conda init --all
 conda activate vllm_env
+
+# add the missing metrics libs
+pip install -U evaluate sacrebleu rouge-score
+
+export WANDB_API_KEY=2c252ca0e83bb5a2c8873ebc2b865c0cc61c1cf5
 
 # find the MASTER_ADDR:
 nodes=( $(scontrol show hostnames $SLURM_JOB_NODELIST ) )
 nodes_array=($nodes)
 head_node=${nodes_array[0]}
-export MASTER_ADDR=$(srun --nodes=1 --ntasks=1 -w "$head_node" hostname --ip-address)
+
+# Alternative way to get IP address
+export MASTER_ADDR=$(srun --nodes=1 --ntasks=1 -w "$head_node" /sbin/ip -4 -o addr show | grep -v 127.0.0.1 | grep -v docker | awk '{print $4}' | cut -d/ -f1 | head -1)
 echo Master addr: $MASTER_ADDR
 echo NCCL_IB_TIMEOUT: $NCCL_IB_TIMEOUT
 echo NCCL_IB_RETRY_CNT: $NCCL_IB_RETRY_CNT
@@ -80,18 +85,20 @@ export NCCL_IGNORE_DISABLED_P2P=1
 # export GLOO_SOCKET_IFNAME=eth0
 
 # Run training
-cd /home1/pdao2015/PhD/GRPO
+cd /home/mdao1/grpo-vdr
 
 > gpu_usage.log  # This clears the file before logging starts
 nvidia-smi -l 5 > gpu_usage.log 2>&1 &
 
 # Generate accelerate config from template
-envsubst < config/accelerate_config_template.yml > config/accelerate_config_${SLURM_JOBID}.yml
+# Commented out since the template file doesn't exist
+# envsubst < config/accelerate_config_template.yml > config/accelerate_config_${SLURM_JOBID}.yml
 
 # Add this before the training command
 echo "Testing network connectivity..."
 ping -c 3 $MASTER_ADDR
-nmap -p $MASTER_PORT $MASTER_ADDR
+# nmap command not available on compute nodes
+# nmap -p $MASTER_PORT $MASTER_ADDR
 
 echo "nnodes: $SLURM_NNODES"
 # NCCL connectivity test
@@ -109,13 +116,32 @@ echo "nnodes: $SLURM_NNODES"
 #     --rdzv_backend=c10d \
 #     scripts/multinode_train.py
 
-OMP_NUM_THREADS=12 srun /home1/pdao2015/.conda/envs/vllm_env/bin/torchrun \
+# Memory optimization settings
+BATCH_SIZE=4                         # Smaller batch size to avoid OOM
+GRAD_ACCUM=4                         # Accumulate gradients over multiple steps
+MAX_STEPS=1500                       # Limit training to 3000 iterations
+# LAMBDAS=(0 1e-3 1 1e3 1e7)
+BETAS=(0.00 0.05 0.20 5.0)
+
+# Set NCCL and CUDA memory management environment variables to avoid OOM
+export NCCL_ASYNC_ERROR_HANDLING=1   # Better error handling
+export PYTORCH_CUDA_ALLOC_CONF="expandable_segments:True"  # More flexible memory allocation
+export CUDA_LAUNCH_BLOCKING=0        # Async CUDA operations
+export CUDA_DEVICE_MAX_CONNECTIONS=1 # Limit connections to avoid fragmentation
+
+# Run with memory-optimized settings
+OMP_NUM_THREADS=12 srun torchrun \
     --nnodes $SLURM_NNODES \
     --nproc_per_node 4 \
     --rdzv_id $RANDOM \
     --rdzv_endpoint $MASTER_ADDR:$MASTER_PORT \
     --rdzv_backend c10d \
-    scripts/multinode_train.py
+    scripts/multinode_train.py \
+    --explore_beta ${BETAS[$SLURM_ARRAY_TASK_ID]} \
+    --per_device_batch_size $BATCH_SIZE \
+    --gradient_accumulation_steps $GRAD_ACCUM \
+    --max_steps $MAX_STEPS \
+    --use_intrinsic_rewards
 
 
 # OMP_NUM_THREADS=12 srun python -m torch.distributed.run  \

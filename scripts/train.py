@@ -33,8 +33,21 @@ def reward_func(completions, ground_truth, **kwargs):
 model_name = "Qwen/Qwen2.5-0.5B-Instruct"
 logger.info(f'model_name: {model_name}')
 
-batch_size = 12
-training_args = GRPOConfig(output_dir="Qwen2-0.5B-GRPO", learning_rate=5e-4, bf16=True, logging_steps=10, use_vllm=False, report_to=["wandb"], per_device_train_batch_size=batch_size)
+batch_size = 4
+training_args = GRPOConfig(
+        output_dir="Qwen2-0.5B-GRPO", 
+        learning_rate=5e-4, 
+        bf16=True, 
+        logging_steps=10, 
+        use_vllm=False, 
+        report_to=["wandb"], 
+        per_device_train_batch_size=batch_size,
+        # epi_reward_lambda=0.01,
+        epi_reward_lambda=1e7,
+        # aleatoric_reward_lambda=0.01,
+        aleatoric_reward_lambda=1e7,
+        epi_reward_mode="all",
+        intrinsic_reward_type="epistemic",)
 
 # model = AutoModelForCausalLM.from_pretrained(
 #     model_name,
@@ -46,6 +59,7 @@ tokenizer = AutoTokenizer.from_pretrained(model_name)
 tokenizer.pad_token = tokenizer.eos_token
 
 logger.info("Setting up trainer")
+
 trainer = GRPOTrainer(
     model=model_name,
     reward_funcs=reward_len,
