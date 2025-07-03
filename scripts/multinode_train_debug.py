@@ -1,32 +1,51 @@
+print("Script started - importing modules...")
+print("1. Importing standard libraries...")
 import argparse
+import time
+start_time = time.time()
+
+print("2. Importing datasets...")
 from datasets import load_dataset
+
+print("3. Importing torch...")
 import torch
+
+print("4. Importing trl...")
 from trl import GRPOConfig
+
+print("5. Importing transformers...")
 from transformers import AutoTokenizer, AutoModelForCausalLM
+
+print("6. Importing remaining modules...")
 import re
 import logging
 import os
 import sys
 from torch.distributed import init_process_group, destroy_process_group
-import torch.nn as nn # Added for force_dropout
-import inspect # Added for force_dropout
-import torch.nn.functional as F # Added for force_dropout
+import torch.nn as nn
+import inspect
+import torch.nn.functional as F
 
+print("7. Setting up logging...")
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
+logger.info("Logger configured")
+
+print("8. Importing custom modules...")
 # Import our custom trainer
 from custom_grpo_trainer import TLDRGRPOTrainer
 
 # Try to import wandb for logging
 try:
     import wandb
+    print("9. Wandb imported successfully")
 except ImportError:
     wandb = None
+    print("9. Wandb not available")
 
 # Add the parent directory to path to import our custom model
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from models.qwen_with_dropout import create_qwen_with_dropout
-
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
 # Import our quality-weighted exploration patch
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -37,6 +56,9 @@ except ImportError:
     logger.warning("Could not import quality-weighted exploration patch")
     HAS_QUALITY_PATCH = False
 
+print(f"All imports completed in {time.time() - start_time:.2f} seconds")
+
+# Rest of the original script continues from here...
 def ddp_setup():
     """Initialize distributed training"""
     if "LOCAL_RANK" in os.environ:
@@ -54,8 +76,6 @@ def parse_args():
                         help="If 'none', no epistemic bonus is used; if 'per_token', compute bonus each token; else end-of-sequence.")
     parser.add_argument("--bald_weight", type=float, default=0.0,
                         help="Scaling factor for the BALD disagreement intrinsic reward.")
-    # parser.add_argument("--explore_lambda", type=float, default=1e-3,
-    #                     help="Max multiplicative boost from z-scored BALD (λ in the paper)")
     parser.add_argument("--use_intrinsic_rewards", action="store_true",
                         help="Whether to use intrinsic rewards. Disabling saves memory.")
     parser.add_argument("--per_device_batch_size", type=int, default=8,
@@ -73,7 +93,7 @@ def parse_args():
     parser.add_argument(
         "--epi_reward_num_samples",
         type=int,
-        default=8,           # ← force 8 MC-Dropout passes
+        default=8,
         help="Forward passes used in BALD intrinsic reward"
     )
     parser.add_argument(
@@ -82,22 +102,16 @@ def parse_args():
         default=None,
         help="Number of generations per prompt (must evenly divide batch size)"
     )
-    # Any other arguments you want to expose
     args, unknown = parser.parse_known_args()
     return args
-
-# def reward_len(completions, **kwargs):
-#     return [-abs(20 - len(completion)) for completion in completions]
 
 def format_reward_func(completions, **kwargs):
     """Reward function that checks if the completion has a specific format.
     Works with both chat-style completions (list of list[dict]) and plain strings."""
     pattern = r"^<think>.*?</think><answer>.*?</answer>$"
-    # Determine the representation of completions
     if completions and isinstance(completions[0], str):
-        completion_contents = completions  # list of raw strings
+        completion_contents = completions
     else:
-        # Assume chat-format: [[{"role": "assistant", "content": "..."}], ...]
         completion_contents = [c[0]["content"] for c in completions]
     matches = [re.match(pattern, content) for content in completion_contents]
     return [1.0 if match else 0.0 for match in matches]
@@ -108,7 +122,7 @@ def reward_len(completions, **kwargs):
 
 def mc_variance(model, tokenizer, local_rank, text="Hello world for variance check.", n_samples=6):
     """Computes Monte-Carlo variance for the last token logits."""
-    model.train() # Ensure dropout is active for MC passes
+    model.train()
     logger.info(f"Running mc_variance with n_samples={n_samples} on rank {local_rank}...")
     
     device = f"cuda:{local_rank}"
@@ -117,7 +131,7 @@ def mc_variance(model, tokenizer, local_rank, text="Hello world for variance che
     attn_mask = inputs.attention_mask.to(device)
 
     try:
-        with torch.no_grad(): # No gradients needed for variance calculation
+        with torch.no_grad():
             outs = []
             for i in range(n_samples):
                 output = model(ids, attention_mask=attn_mask)
@@ -134,7 +148,7 @@ def mc_variance(model, tokenizer, local_rank, text="Hello world for variance che
             logger.warning("No logits collected for mc_variance.")
             return 0.0
 
-        stacked_logits = torch.stack(outs, dim=0)  # (n_samples, B, V)
+        stacked_logits = torch.stack(outs, dim=0)
         variance = stacked_logits.var(dim=0).mean().item()
         logger.info(f"mc_variance result: {variance:.6e}")
         return variance
@@ -144,9 +158,7 @@ def mc_variance(model, tokenizer, local_rank, text="Hello world for variance che
 
 def force_dropout(model, p: float = 0.1):
     """
-    • sets p for every nn.Dropout *module*  
-    • overwrites float attributes like `.dropout`, `.attention_dropout`  
-    • leaves the model in train() mode so dropout is active in MC passes
+    Sets dropout probability for all dropout layers and attributes
     """
     logger.info(f"Applying force_dropout with p={p} to model {type(model).__name__}")
     
@@ -188,6 +200,8 @@ def force_dropout(model, p: float = 0.1):
     logger.info("Model set to train() mode after force_dropout.")
 
 def main():
+    print("10. Starting main function...")
+    
     # Initialize distributed training
     ddp_setup()
     
@@ -196,27 +210,26 @@ def main():
     world_size = int(os.environ.get("WORLD_SIZE", 1))
     logger.info(f"local_rank: {local_rank}, global_rank: {global_rank}, world_size: {world_size}")
 
-    # Ensure all processes are initialized before proceeding (only if distributed is initialized)
+    # Ensure all processes are initialized before proceeding
     if torch.distributed.is_initialized():
         torch.distributed.barrier()
     else:
         logger.info("Running in non-distributed mode, skipping barrier")
     
+    print("11. Parsing arguments...")
     args = parse_args()
 
     model_name = "Qwen/Qwen2.5-0.5B-Instruct"
     logger.info(f"Using model: {model_name}")
-    logger.info(f"epistemic_mode: {args.epistemic_mode}")
-    logger.info(f"bald_weight: {args.bald_weight}")
-    logger.info(f"epi_reward_lambda: {args.epi_reward_lambda}")
-    logger.info(f"use_intrinsic_rewards: {args.use_intrinsic_rewards}")
-    logger.info(f"per_device_batch_size: {args.per_device_batch_size}")
-    logger.info(f"gradient_accumulation_steps: {args.gradient_accumulation_steps}")
-    logger.info(f"max_steps: {args.max_steps}")
+    logger.info(f"Arguments: {vars(args)}")
+    
+    print("12. Loading tokenizer...")
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     tokenizer.pad_token = tokenizer.eos_token
+    print("Tokenizer loaded successfully")
 
-    # Create GRPOConfig with only supported parameters
+    # Create GRPOConfig
+    print("13. Creating GRPOConfig...")
     grpo_config_kwargs = {
         "output_dir": "Qwen2-0.5B-GRPO",
         "bf16": True,
@@ -232,93 +245,80 @@ def main():
         "aleatoric_reward_lambda": 0,
         "epi_reward_mode": "all",
         "intrinsic_reward_type": "epistemic",
-        "max_steps": args.max_steps,  # Limit training to 3000 steps
+        "max_steps": args.max_steps,
     }
     
-    # Add num_generations if specified
     if args.num_generations is not None:
         grpo_config_kwargs["num_generations"] = args.num_generations
         logger.info(f"Setting num_generations to: {args.num_generations}")
     
     training_args = GRPOConfig(**grpo_config_kwargs)
     
-    # Set additional attributes that aren't part of GRPOConfig constructor
+    # Set additional attributes
     training_args.logging_first_step = True
     training_args.dataloader_num_workers = 1
     
-    # Only set gradient checkpointing if available
     try:
         training_args.gradient_checkpointing = True
         logger.info("Gradient checkpointing enabled")
     except:
         logger.info("Gradient checkpointing not available for this model/config")
     
-    # Add the use_intrinsic_rewards as a custom attribute after initialization
     setattr(training_args, 'use_intrinsic_rewards', args.use_intrinsic_rewards)
     setattr(training_args, "epi_reward_num_samples", args.epi_reward_num_samples)
-    assert training_args.epi_reward_num_samples >= 2, "Need multiple passes for BALD (epi_reward_num_samples must be >= 2)"
-    logger.info(f"epi_reward_num_samples set to: {training_args.epi_reward_num_samples} (assertion passed)")
-    # We'll inject our new flags into training_args
-    training_args.epistemic_mode = args.epistemic_mode
-    # training_args.bald_weight    = args.bald_weight
-    setattr(training_args, "explore_beta", args.explore_beta)
-    setattr(training_args, "mi_cap",      args.mi_cap)
-    # setattr(training_args, "explore_lambda", args.explore_lambda)
+    assert training_args.epi_reward_num_samples >= 2, "Need multiple passes for BALD"
     
-    # Log memory settings
+    training_args.epistemic_mode = args.epistemic_mode
+    setattr(training_args, "explore_beta", args.explore_beta)
+    setattr(training_args, "mi_cap", args.mi_cap)
+    
     logger.info(f"Memory optimization settings:")
     logger.info(f"  Batch size: {training_args.per_device_train_batch_size}")
     logger.info(f"  Gradient accumulation steps: {training_args.gradient_accumulation_steps}")
-    world_size_for_batch = torch.distributed.get_world_size() if torch.distributed.is_initialized() else 1
-    logger.info(f"  Effective batch size: {training_args.per_device_train_batch_size * training_args.gradient_accumulation_steps * world_size_for_batch}")
-    logger.info(f"  Intrinsic rewards enabled: {getattr(training_args, 'use_intrinsic_rewards', False)}")
-    logger.info(f"  Gradient checkpointing: {training_args.gradient_checkpointing}")
-    logger.info(f"  BF16 precision: {training_args.bf16}")
 
     # Load dataset
-    logger.info("Loading dataset 'trl-lib/tldr' (train split)")
+    print("14. Loading dataset...")
     dataset = load_dataset("trl-lib/tldr", split="train")
+    print(f"Dataset loaded: {len(dataset)} samples")
 
     # Build the model
+    print("15. Loading model...")
     device = f"cuda:{local_rank}" if torch.cuda.is_available() else "cpu"
     model = AutoModelForCausalLM.from_pretrained(model_name, torch_dtype=torch.bfloat16).to(device)
     logger.info(f"Model {model_name} loaded on {device}")
 
-    # 1. Check mc_variance BEFORE patch
-    logger.info("Calculating mc_variance BEFORE force_dropout patch...")
-    # mc_variance function handles tokenization and device placement internally
+    # Check mc_variance BEFORE patch
+    print("16. Checking mc_variance before patch...")
     variance_before = mc_variance(model, tokenizer, local_rank, n_samples=8)
     logger.info(f"mc_variance BEFORE patch: {variance_before:.6e}")
 
-    # 2. Apply force_dropout patch
-    dropout_p_to_force = 0.1 # Define the dropout probability
-    logger.info(f"Applying force_dropout with p={dropout_p_to_force}...")
-    force_dropout(model, p=dropout_p_to_force) #Set dropout to p=0.1
+    # Apply force_dropout patch
+    print("17. Applying force_dropout...")
+    dropout_p_to_force = 0.1
+    force_dropout(model, p=dropout_p_to_force)
     
-    # 3. Check mc_variance AFTER patch
-    logger.info("Calculating mc_variance AFTER force_dropout patch...")
+    # Check mc_variance AFTER patch
+    print("18. Checking mc_variance after patch...")
     variance_after = mc_variance(model, tokenizer, local_rank, n_samples=8)
     logger.info(f"mc_variance AFTER patch: {variance_after:.6e}")
 
-    # Note: The manual config changes for dropout below are now largely superseded by force_dropout.
-    # logger.info(f"For reference, model.config.hidden_dropout_prob: {getattr(model.config, 'hidden_dropout_prob', 'N/A')}")
-    # logger.info(f"For reference, model.config.attention_dropout: {getattr(model.config, 'attention_dropout', 'N/A')}")
-
-    # Apply quality-weighted exploration patch if available and using exploration
+    # Apply quality-weighted exploration patch if available
     if HAS_QUALITY_PATCH and args.explore_beta > 0:
         logger.info("Applying reward-quality weighted exploration patch...")
         apply_quality_weighted_exploration_patch()
-        logger.info("Patch applied - exploration will be amplified only for high-quality completions")
+        logger.info("Patch applied")
     
-    # Create the trainer - using our custom TLDRGRPOTrainer instead of GRPOTrainer
+    # Create the trainer
+    print("19. Creating trainer...")
     trainer = TLDRGRPOTrainer(
         model=model,                
         reward_funcs=reward_len,
         args=training_args,
         train_dataset=dataset,
     )
+    print("Trainer created successfully")
 
-    logger.info(f"Starting training with epistemic_mode={args.epistemic_mode}, bald_weight={args.bald_weight}, explore_beta={args.explore_beta}")
+    logger.info(f"Starting training with explore_beta={args.explore_beta}")
     
     # Log hyperparameters to wandb
     if wandb is not None and wandb.run is not None:
@@ -335,6 +335,7 @@ def main():
             "num_generations": args.num_generations if args.num_generations else training_args.num_generations,
         })
     
+    print("20. Starting training...")
     trainer.train()
     
     # Clean up distributed training if initialized
@@ -342,4 +343,6 @@ def main():
         destroy_process_group()
 
 if __name__ == "__main__":
+    print("=== GRPO Training Script Starting ===")
     main()
+    print("=== GRPO Training Script Completed ===") 
