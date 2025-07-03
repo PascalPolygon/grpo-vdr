@@ -33,7 +33,7 @@ LOGGING_STEPS=50        # Less frequent logging
 SAVE_STEPS=500          # Less frequent saving
 
 # Set environment variables
-export WANDB_API_KEY=2c252ca0e83bb5a2c8873ebc2b865c0cc61c1cf5
+export WANDB_API_KEY=
 export CUDA_VISIBLE_DEVICES=0
 
 # Balanced memory optimization settings (less aggressive for better speed)
