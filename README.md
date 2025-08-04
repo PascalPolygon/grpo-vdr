@@ -9,7 +9,7 @@
 This repository contains the official implementation and supplementary materials for the paper:
 
 > **Entropic Resistance**  
-> *Mawaba Pascal Dao, March 2025*
+> *Mawaba Pascal Dao, 2025*
 
 ## Overview
 
