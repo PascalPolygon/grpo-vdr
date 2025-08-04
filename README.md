@@ -17,7 +17,7 @@ The Entropic Resistance integrates Bayesian Active Learning by Disagreement (BAL
 
 ## Custom TRL Library
 
-This repo imports my custom version of Hugging Face's <a href="https://github.com/PascalPolygon/trl" target="_blank">TRL</a> which is adapted to enable Monte Carlo dropout on GRPO group members. This has the effect of creating an ensemble from the group, which is used for calculating the Bayesian Active Learning by Disagreement (BALD) bonus</li> 
+This repo imports my custom version of Hugging Face's <a href="https://github.com/PascalPolygon/trl" target="_blank">TRL</a> which is adapted to enable Monte Carlo dropout on GRPO group members. This has the effect of creating an ensemble from the group, which is used for calculating the Bayesian Active Learning by Disagreement (BALD) bonus</li>.
 
 ## Contents
 
