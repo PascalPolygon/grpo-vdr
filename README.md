@@ -15,9 +15,9 @@ This repository contains the official implementation and supplementary materials
 
 The Entropic Resistance integrates Bayesian Active Learning by Disagreement (BALD) into the Group Relative Policy Optimization (GRPO) framework to enhance exploration efficiency and robustness in reinforcement fine-tuning of language models. By quantifying epistemic uncertainty through entropy-based measures, this approach actively encourages exploration of less certain, information-rich token choices.
 
-## TRL
+## Custom TRL Library
 
-grpo-vdr imports my fork of Hugging Face's <a href="https://github.com/PascalPolygon/trl" target="_blank">TRL</a> with custom Bayesian Active Learning by Disagreement (BALD) bonus</li> 
+This repo imports my custom version of Hugging Face's <a href="https://github.com/PascalPolygon/trl" target="_blank">TRL</a> which is adapted to enable Monte Carlo dropout on GRPO group members. This has the effect of creating an ensemble from the group, which is used for calculating the Bayesian Active Learning by Disagreement (BALD) bonus</li> 
 
 ## Contents
 
