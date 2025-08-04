@@ -18,9 +18,6 @@ The Entropic Resistance integrates Bayesian Active Learning by Disagreement (BAL
 ## Contents
 
 - `scripts/` - Training and evaluation scripts.
-- `data/` - Instructions and scripts for dataset preparation (e.g., TL;DR dataset).
-- `configs/` - Configuration files for experiments.
-- `results/` - Experiment outputs, logs, and checkpoints.
 
 ## Key Features
 
