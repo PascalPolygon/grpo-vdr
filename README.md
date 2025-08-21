@@ -1,4 +1,4 @@
-# GRPO-VDR
+# GRPO + Variational Disagreement Reward (VDR)
 
 
 <img src="enropic_resistance.png" alt="Entropic Resistance" width="400px" style="border-radius: 15px"/>
